@@ -1,0 +1,27 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* STRICT GLOBAL OVERRIDE */
+:root, html, body, #root, iframe, .gai-preview, .gai-panel, .gai-app, .gws-viewer, div:has(#root) {
+  background: #ffffff !important; /* White */
+  color: #0ea5e9; /* Sky-500 */
+  min-height: 100vh !important;
+}
+
+/* Custom scrollbar for light theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f0f9ff; 
+}
+::-webkit-scrollbar-thumb {
+  background: #7dd3fc; /* sky-300 */
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #0ea5e9; /* sky-500 */
+}

@@ -1,0 +1,635 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Hevins AI Studio - Video to PDF & Photo Resizer</title>
+    <meta name="description" content="Securely convert videos and images to PDF, resize photos, upscale images to 4K, and analyze documents with AI.">
+    
+    <!-- Environment Shim -->
+    <script>
+      window.process = { env: { API_KEY: '' } };
+    </script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ['Inter', 'sans-serif'] },
+            colors: {
+              sky: { 50:'#f0f9ff',100:'#e0f2fe',200:'#bae6fd',300:'#7dd3fc',400:'#38bdf8',500:'#0ea5e9',600:'#0284c7',700:'#0369a1',800:'#075985',900:'#0c4a6e',950:'#082f49' }
+            }
+          }
+        }
+      }
+    </script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Global Styles -->
+    <style>
+      :root, html, body, #root {
+        background: #ffffff !important;
+        min-height: 100vh !important;
+        margin: 0;
+        padding: 0;
+      }
+      body { font-family: 'Inter', sans-serif; overscroll-behavior-y: none; }
+      /* Hide scrollbar for Chrome, Safari and Opera */
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      /* Hide scrollbar for IE, Edge and Firefox */
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      .studio-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+      .studio-scroll::-webkit-scrollbar-track { background: #f0f9ff; }
+      .studio-scroll::-webkit-scrollbar-thumb { background-color: #7dd3fc; border-radius: 3px; }
+      .studio-scroll::-webkit-scrollbar-thumb:hover { background-color: #0ea5e9; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "pdfjs-dist": "https://esm.sh/pdfjs-dist@^5.4.449",
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
+    "jspdf": "https://esm.sh/jspdf@^3.0.4",
+    "jszip": "https://esm.sh/jszip@^3.10.1",
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-white text-sky-600">
+    <div id="root"></div>
+
+    <!-- MAIN APPLICATION SCRIPT -->
+    <script type="text/babel" data-type="module" data-presets="react,typescript">
+      // --- IMPORTS (Direct URL for GitHub Pages compatibility) ---
+      import React, { useState, useEffect, useRef, useLayoutEffect } from 'https://esm.sh/react@18.2.0';
+      import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+      import { 
+        ArrowLeft, Upload, Sparkles, FileText, CheckCircle, AlertCircle, X, Layers, Trash2, 
+        Loader2, SkipBack, SkipForward, Image as ImageIcon, Info, Grid, Zap, MonitorPlay, 
+        FileSpreadsheet, FileArchive, File as FileIcon, Download, ChevronDown, MoveHorizontal, 
+        Lock, Unlock, Maximize2, FolderOpen, Video, RefreshCw, Save, FileCode, ZoomIn, ZoomOut, 
+        ChevronLeft, ChevronRight, ShieldCheck 
+      } from 'https://esm.sh/lucide-react@0.263.1';
+      import { GoogleGenAI } from "https://esm.sh/@google/genai@0.1.1";
+      import { jsPDF } from "https://esm.sh/jspdf@2.5.1";
+      import JSZip from "https://esm.sh/jszip@3.10.1";
+      import * as pdfjsLib from "https://esm.sh/pdfjs-dist@3.11.174";
+
+      // --- PDF WORKER SETUP ---
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      } catch (e) { console.warn("PDF Worker Init Warning:", e); }
+
+      // --- CONSTANTS & TYPES ---
+      const AppView = { HOME: 'HOME', CONVERTER: 'CONVERTER', VIEWER: 'VIEWER' };
+      const FileType = { IMAGE: 'IMAGE', VIDEO: 'VIDEO', TEXT: 'TEXT', DOCUMENT: 'DOCUMENT', SPREADSHEET: 'SPREADSHEET', ARCHIVE: 'ARCHIVE', UNKNOWN: 'UNKNOWN' };
+
+      // --- SERVICES: IMAGE PROCESSING ---
+      const upscaleTo4KLocal = (dataUrl) => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.src = dataUrl;
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              if (!ctx) throw new Error("No context");
+              
+              const TARGET_LONG_EDGE = 3840;
+              let width = img.width;
+              let height = img.height;
+              let scaleFactor = width >= height ? TARGET_LONG_EDGE / width : 2160 / width;
+              if (scaleFactor < 1) scaleFactor = 1;
+
+              canvas.width = Math.floor(width * scaleFactor);
+              canvas.height = Math.floor(height * scaleFactor);
+              
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/jpeg', 0.95));
+            } catch (e) { reject(e); }
+          };
+          img.onerror = reject;
+        });
+      };
+
+      const resizeImageCustom = (dataUrl, width, height) => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.src = dataUrl;
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.drawImage(img, 0, 0, width, height);
+              resolve(canvas.toDataURL('image/jpeg', 0.9));
+            } catch (e) { reject(e); }
+          };
+          img.onerror = reject;
+        });
+      };
+
+      const getImageDimensions = (dataUrl) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.src = dataUrl;
+          img.onload = () => resolve({width: img.width, height: img.height});
+          img.onerror = () => resolve({width: 0, height: 0});
+        });
+      };
+
+      // --- SERVICES: GEMINI AI ---
+      const analyzeContent = async (items) => {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+        const parts = [];
+        
+        for (const item of items) {
+           // Resize for token efficiency
+           const img = new Image();
+           img.src = item.previewUrl;
+           await new Promise(r => img.onload = r);
+           const canvas = document.createElement('canvas');
+           const scale = Math.min(1, 800 / Math.max(img.width, img.height));
+           canvas.width = img.width * scale;
+           canvas.height = img.height * scale;
+           canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+           
+           parts.push({
+             inlineData: { mimeType: 'image/jpeg', data: canvas.toDataURL('image/jpeg').split(',')[1] }
+           });
+        }
+        
+        parts.push({ text: "Analyze these images. Return JSON with keys: title, summary, keyPoints (array), content." });
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: { parts },
+          config: { responseMimeType: "application/json" }
+        });
+        
+        return JSON.parse(response.text);
+      };
+
+      // --- UTILS: PDF GENERATOR ---
+      const generateUniversalExport = async (items, format) => {
+        if (format === 'PDF') {
+          // Horizontal PDF
+          const doc = new jsPDF({ orientation: 'landscape' });
+          const pageWidth = doc.internal.pageSize.getWidth();
+          const pageHeight = doc.internal.pageSize.getHeight();
+          
+          for (let index = 0; index < items.length; index++) {
+            const item = items[index];
+            if (index > 0) doc.addPage();
+
+            // Handle Images AND Video Thumbnails
+            if ((item.type === FileType.IMAGE || item.type === FileType.VIDEO) && item.previewUrl) {
+              const imgData = item.previewUrl;
+              const imgProps = doc.getImageProperties(imgData);
+              
+              let imgWidth = pageWidth;
+              let imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+              
+              if (imgHeight > pageHeight) {
+                imgHeight = pageHeight;
+                imgWidth = (imgProps.width * imgHeight) / imgProps.height;
+              }
+              
+              const x = (pageWidth - imgWidth) / 2;
+              const y = (pageHeight - imgHeight) / 2;
+              
+              doc.addImage(imgData, "JPEG", x, y, imgWidth, imgHeight, undefined, 'NONE');
+              
+              if (item.type === FileType.VIDEO) {
+                 doc.setFillColor(0, 0, 0);
+                 doc.rect(x + 10, y + imgHeight - 20, 40, 10, 'F');
+                 doc.setTextColor(255, 255, 255);
+                 doc.setFontSize(8);
+                 doc.text("VIDEO SOURCE", x + 12, y + imgHeight - 13);
+              }
+            } else {
+               doc.text(`File: ${item.file.name}`, 15, 20);
+               if (item.textContent) {
+                  doc.setFontSize(10);
+                  const splitText = doc.splitTextToSize(item.textContent.substring(0,3000), pageWidth - 30);
+                  doc.text(splitText, 15, 35);
+               } else {
+                  doc.text("[Binary File Attached]", 15, 35);
+               }
+            }
+          }
+          doc.save(`hevins_studio_${Date.now()}.pdf`);
+        } else if (format === 'ZIP') {
+            const zip = new JSZip();
+            items.forEach(i => zip.file(i.file.name, i.file));
+            const blob = await zip.generateAsync({type:"blob"});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = "export.zip";
+            link.click();
+        }
+      };
+
+      // --- COMPONENT: BUTTON ---
+      const Button = ({ children, variant = 'primary', isLoading, icon, className = '', ...props }) => {
+        const base = "inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200 disabled:opacity-50";
+        const variants = {
+          primary: "bg-sky-500 text-white hover:bg-sky-600 shadow-md",
+          secondary: "bg-white text-sky-500 hover:bg-sky-50 border border-sky-200",
+          outline: "bg-transparent border-2 border-sky-500 text-sky-500"
+        };
+        return (
+          <button className={`${base} ${variants[variant]} ${className}`} disabled={isLoading || props.disabled} {...props}>
+            {isLoading ? <Loader2 className="animate-spin mr-2" size={16} /> : icon ? <span className="mr-2">{icon}</span> : null}
+            {children}
+          </button>
+        );
+      };
+
+      // --- COMPONENT: COMPARISON SLIDER ---
+      const ComparisonSlider = ({ originalImage, enhancedImage }) => {
+        const [pos, setPos] = useState(50);
+        const ref = useRef(null);
+        
+        const move = (e) => {
+          if (!ref.current) return;
+          const rect = ref.current.getBoundingClientRect();
+          const x = (e.clientX || e.touches[0].clientX) - rect.left;
+          setPos(Math.max(0, Math.min(100, (x / rect.width) * 100)));
+        };
+
+        return (
+          <div ref={ref} className="relative w-full h-full select-none overflow-hidden rounded-lg cursor-col-resize touch-none border border-sky-200 bg-white"
+               onMouseMove={(e) => e.buttons === 1 && move(e)} onTouchMove={move} onClick={move}>
+            <img src={enhancedImage} className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
+            <div className="absolute top-4 right-4 bg-sky-500 text-white text-xs font-bold px-2 py-1 rounded shadow">NEW 4K</div>
+            <div className="absolute top-0 bottom-0 left-0 overflow-hidden border-r-2 border-white z-10 bg-white" style={{width: `${pos}%`}}>
+               <img src={originalImage} className="absolute top-0 left-0 h-full max-w-none object-contain" style={{width: ref.current?.offsetWidth}} />
+               <div className="absolute top-4 left-4 bg-white text-sky-800 text-xs font-bold px-2 py-1 rounded shadow">ORIGINAL</div>
+            </div>
+            <div className="absolute top-0 bottom-0 w-1 bg-transparent z-20 flex items-center justify-center" style={{left:`${pos}%`}}>
+               <div className="w-8 h-8 -ml-4 bg-white rounded-full shadow flex items-center justify-center text-sky-500"><MoveHorizontal size={16}/></div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: PDF VIEWER (With Video Support) ---
+      const PDFViewer = ({ onBack, initialFile }) => {
+        const [url, setUrl] = useState(null);
+        const [type, setType] = useState('unknown');
+        const [pdfDoc, setPdfDoc] = useState(null);
+        const [pageNum, setPageNum] = useState(1);
+        const [scale, setScale] = useState(1.0);
+        const canvasRef = useRef(null);
+
+        useEffect(() => { if (initialFile) load(initialFile); }, [initialFile]);
+        useEffect(() => { if (pdfDoc && type==='pdf') renderPage(pageNum); }, [pdfDoc, pageNum, scale]);
+
+        const load = (file) => {
+           const ext = file.name.split('.').pop().toLowerCase();
+           const mime = file.type;
+           
+           if (ext === 'pdf' || mime.includes('pdf')) {
+             setType('pdf');
+             const reader = new FileReader();
+             reader.onload = async (e) => {
+               try {
+                 const doc = await pdfjsLib.getDocument({ data: new Uint8Array(e.target.result) }).promise;
+                 setPdfDoc(doc);
+               } catch(err) { console.error(err); alert("Failed to open PDF. Ensure browser compatibility."); }
+             };
+             reader.readAsArrayBuffer(file);
+           } else if (['mp4','webm','mov','ogg'].includes(ext) || mime.includes('video')) {
+             setType('video');
+             setUrl(URL.createObjectURL(file));
+           } else if (['jpg','png','jpeg','webp','gif'].includes(ext) || mime.includes('image')) {
+             setType('image');
+             setUrl(URL.createObjectURL(file));
+           } else {
+             setType('unknown');
+           }
+        };
+
+        const renderPage = async (num) => {
+           if (!pdfDoc || !canvasRef.current) return;
+           try {
+             const page = await pdfDoc.getPage(num);
+             const viewport = page.getViewport({ scale });
+             const canvas = canvasRef.current;
+             canvas.height = viewport.height;
+             canvas.width = viewport.width;
+             await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+           } catch(e) { console.error(e); }
+        };
+
+        return (
+          <div className="flex flex-col h-full bg-white">
+            <div className="p-4 border-b border-sky-100 flex justify-between items-center shadow-sm z-10">
+               <Button variant="outline" size="sm" onClick={onBack} icon={<ArrowLeft size={16}/>}>Back</Button>
+               {type === 'pdf' && (
+                 <div className="flex gap-2 items-center bg-sky-50 px-2 py-1 rounded">
+                    <button onClick={() => setPageNum(p=>Math.max(1, p-1))} className="p-1 hover:text-sky-700"><ChevronLeft size={16}/></button>
+                    <span className="text-sm font-mono">{pageNum}</span>
+                    <button onClick={() => setPageNum(p=>Math.min(pdfDoc?.numPages||1, p+1))} className="p-1 hover:text-sky-700"><ChevronRight size={16}/></button>
+                    <div className="w-px h-4 bg-sky-200 mx-1"></div>
+                    <button onClick={() => setScale(s=>Math.max(0.5, s-0.2))} className="p-1 hover:text-sky-700"><ZoomOut size={16}/></button>
+                    <button onClick={() => setScale(s=>Math.min(3, s+0.2))} className="p-1 hover:text-sky-700"><ZoomIn size={16}/></button>
+                 </div>
+               )}
+            </div>
+            <div className="flex-1 bg-sky-50 flex items-center justify-center overflow-auto p-4">
+               {type === 'pdf' && <canvas ref={canvasRef} className="shadow-lg bg-white" />}
+               {type === 'video' && (
+                 <div className="bg-black rounded-lg shadow-lg overflow-hidden max-w-full max-h-full">
+                   <video src={url} controls className="max-w-full max-h-[80vh]" />
+                 </div>
+               )}
+               {type === 'image' && <img src={url} className="max-w-full max-h-full object-contain rounded-lg shadow-lg bg-white" />}
+               {type === 'unknown' && <div className="text-center text-sky-400">Preview Not Available</div>}
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: CONVERTER (Studio) ---
+      const Converter = ({ onBack }) => {
+        const [items, setItems] = useState([]);
+        const [selectedId, setSelectedId] = useState(null);
+        const [enhanced, setEnhanced] = useState({});
+        const [isComp, setIsComp] = useState(false);
+        const [loading, setLoading] = useState(false);
+        const [showResize, setShowResize] = useState(false);
+        const [resizeDims, setResizeDims] = useState({w:0,h:0});
+        
+        const selected = items.find(i => i.id === selectedId) || items[0];
+        const enhancedUrl = selectedId ? enhanced[selectedId] : null;
+
+        const handleFiles = async (files) => {
+           if (!files) return;
+           const newItems = [];
+           for (const file of files) {
+             const ext = file.name.split('.').pop().toLowerCase();
+             let preview = '';
+             let type = FileType.UNKNOWN;
+             
+             if (['jpg','png','jpeg','webp'].includes(ext) || file.type.includes('image')) {
+                type = FileType.IMAGE;
+                preview = await new Promise(r => { const rd = new FileReader(); rd.onload=e=>r(e.target.result); rd.readAsDataURL(file); });
+             } else if (['mp4','mov','webm','ogg'].includes(ext) || file.type.includes('video')) {
+                type = FileType.VIDEO;
+                // Generate Video Thumbnail
+                try {
+                   preview = await new Promise(r => {
+                      const v = document.createElement('video');
+                      v.src = URL.createObjectURL(file);
+                      v.muted = true;
+                      v.currentTime = 1; // Capture at 1s
+                      v.onloadeddata = () => { if(v.readyState >= 2) v.currentTime = 1; };
+                      v.onseeked = () => {
+                         const c = document.createElement('canvas');
+                         c.width = v.videoWidth; c.height = v.videoHeight;
+                         const ctx = c.getContext('2d');
+                         ctx.drawImage(v,0,0);
+                         // Overlay Play Icon
+                         ctx.fillStyle = 'rgba(14, 165, 233, 0.5)';
+                         ctx.fillRect(0,0,c.width,c.height);
+                         ctx.fillStyle = 'white';
+                         ctx.beginPath(); ctx.arc(c.width/2, c.height/2, c.width*0.1, 0, Math.PI*2); ctx.fill();
+                         r(c.toDataURL('image/jpeg'));
+                      };
+                      v.onerror = () => r('');
+                   });
+                } catch(e) { console.error(e); }
+             } else {
+                type = FileType.DOCUMENT;
+             }
+             newItems.push({ id: Math.random().toString(36), file, previewUrl: preview, type, extension: ext });
+           }
+           setItems([...items, ...newItems]);
+           if (!selectedId && newItems.length) setSelectedId(newItems[0].id);
+        };
+
+        const handleExport = async () => {
+           setLoading(true);
+           try {
+             const data = items.map(i => ({...i, previewUrl: enhanced[i.id] || i.previewUrl}));
+             await generateUniversalExport(data, 'PDF');
+           } catch(e) { alert("Export failed"); console.error(e); }
+           setLoading(false);
+        };
+
+        const handleUpscale = async () => {
+           if (!selected) return;
+           setLoading(true);
+           try {
+              const res = await upscaleTo4KLocal(selected.previewUrl);
+              setEnhanced({...enhanced, [selected.id]: res});
+              setIsComp(true);
+           } catch(e) { alert("Upscale failed. Image may be too large or corrupted."); }
+           setLoading(false);
+        };
+
+        return (
+           <div className="flex flex-col h-full bg-white">
+              <div className="h-16 border-b border-sky-100 flex items-center justify-between px-4 bg-white shadow-sm z-20">
+                 <Button variant="outline" size="sm" onClick={onBack} icon={<ArrowLeft size={16}/>}>Back</Button>
+                 <div className="flex gap-2">
+                    <label className="cursor-pointer bg-sky-50 text-sky-600 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-sky-100 flex items-center border border-sky-100">
+                       <input type="file" multiple className="hidden" onChange={e => handleFiles(e.target.files)} accept="image/*,video/*,.pdf" />
+                       <Upload size={16} className="mr-2"/> Add Files
+                    </label>
+                 </div>
+              </div>
+
+              <div className="flex-1 flex overflow-hidden">
+                 {/* Sidebar List */}
+                 <div className="w-64 border-r border-sky-100 overflow-y-auto bg-white p-2 flex-shrink-0">
+                    {items.map((item, idx) => (
+                       <div key={item.id} onClick={() => setSelectedId(item.id)} className={`p-2 rounded-lg flex gap-3 cursor-pointer transition-all mb-1 ${selectedId===item.id ? 'bg-sky-50 ring-1 ring-sky-200 shadow-sm' : 'hover:bg-slate-50'}`}>
+                          <div className="w-10 h-10 bg-sky-50 rounded-md overflow-hidden flex items-center justify-center border border-sky-100 flex-shrink-0">
+                             {item.previewUrl ? <img src={item.previewUrl} className="w-full h-full object-cover"/> : <FileIcon size={20} className="text-sky-300"/>}
+                          </div>
+                          <div className="truncate flex-1 min-w-0">
+                             <div className="text-xs font-bold text-sky-700 truncate">{item.file.name}</div>
+                             <div className="text-[10px] text-sky-400 font-mono uppercase">{item.extension}</div>
+                          </div>
+                          <button onClick={(e)=>{e.stopPropagation(); setItems(items.filter(i=>i.id!==item.id))}} className="text-sky-200 hover:text-red-500"><Trash2 size={14}/></button>
+                       </div>
+                    ))}
+                    {items.length === 0 && <div className="text-center text-xs text-sky-300 mt-10 p-4">Drag & drop videos, images or PDFs here.</div>}
+                 </div>
+
+                 {/* Main Stage */}
+                 <div className="flex-1 bg-sky-50/50 flex items-center justify-center p-6 relative overflow-hidden">
+                    {selected ? (
+                       (selected.type === FileType.IMAGE || selected.type === FileType.VIDEO) ? (
+                          <div className="h-full w-full flex items-center justify-center">
+                             {isComp && enhancedUrl ? (
+                                <ComparisonSlider originalImage={selected.previewUrl} enhancedImage={enhancedUrl} />
+                             ) : (
+                                <img src={enhancedUrl || selected.previewUrl} className="max-h-full max-w-full object-contain shadow-2xl rounded-lg bg-white border border-sky-100" />
+                             )}
+                          </div>
+                       ) : <div className="text-sky-400 font-medium">Preview not available for this file type</div>
+                    ) : (
+                       <div className="text-center">
+                          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-lg border border-sky-100 mx-auto mb-4">
+                             <Layers size={32} className="text-sky-200"/>
+                          </div>
+                          <div className="text-sky-300 font-bold">Select an item to edit</div>
+                       </div>
+                    )}
+                    
+                    {enhancedUrl && (
+                       <div className="absolute bottom-6 flex gap-2 bg-white p-1.5 rounded-full shadow-lg border border-sky-100 z-10">
+                          <button onClick={()=>setIsComp(true)} className={`px-4 py-1.5 text-xs font-bold rounded-full transition-colors ${isComp?'bg-sky-500 text-white':'text-sky-500 hover:bg-sky-50'}`}>Compare</button>
+                          <button onClick={()=>setIsComp(false)} className={`px-4 py-1.5 text-xs font-bold rounded-full transition-colors ${!isComp?'bg-sky-500 text-white':'text-sky-500 hover:bg-sky-50'}`}>Result</button>
+                       </div>
+                    )}
+                 </div>
+
+                 {/* Tools Panel */}
+                 <div className="w-72 border-l border-sky-100 bg-white p-4 flex flex-col gap-4 overflow-y-auto flex-shrink-0 shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.02)]">
+                    <div className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-2"><Info size={12}/> Properties</div>
+                    {selected && (selected.type === FileType.IMAGE || selected.type === FileType.VIDEO) && (
+                       <div className="space-y-4">
+                          <div className="p-4 bg-sky-50/50 rounded-xl border border-sky-100">
+                             <div className="font-bold text-sky-700 text-sm mb-1 flex items-center gap-2"><Zap size={14} className="text-yellow-500" fill="currentColor"/> 4K Upscale</div>
+                             <p className="text-xs text-sky-400 mb-3 leading-relaxed">Enhance resolution locally using browser canvas.</p>
+                             <Button size="sm" className="w-full text-xs" onClick={handleUpscale} disabled={loading} isLoading={loading}>Run Upscaler</Button>
+                          </div>
+                          
+                          <div className="p-4 bg-white rounded-xl border border-sky-100 shadow-sm">
+                             <div className="font-bold text-sky-700 text-sm mb-1 flex items-center gap-2"><MoveHorizontal size={14}/> Resize</div>
+                             <p className="text-xs text-sky-400 mb-3">Change dimensions.</p>
+                             <Button variant="secondary" size="sm" className="w-full text-xs" onClick={() => {
+                                getImageDimensions(selected.previewUrl).then(d => { setResizeDims(d); setShowResize(true); });
+                             }}>Custom Size</Button>
+                          </div>
+                       </div>
+                    )}
+                    <div className="mt-auto">
+                       <Button className="w-full py-3 shadow-sky-200" onClick={handleExport} disabled={loading || items.length===0} isLoading={loading}>
+                          <Download size={18} className="mr-2" /> Export PDF
+                       </Button>
+                    </div>
+                 </div>
+              </div>
+
+              {/* Resize Modal */}
+              {showResize && (
+                 <div className="fixed inset-0 bg-sky-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200">
+                       <h3 className="font-bold text-sky-800 mb-6 text-lg">Resize Image</h3>
+                       <div className="grid grid-cols-2 gap-4 mb-6">
+                          <div>
+                             <label className="text-xs font-bold text-sky-400 uppercase mb-1 block">Width</label>
+                             <input type="number" className="w-full border border-sky-200 rounded-lg p-2 text-sky-700 font-mono text-lg focus:ring-2 focus:ring-sky-500 outline-none" value={resizeDims.w} onChange={e=>setResizeDims({...resizeDims, w: parseInt(e.target.value)})} />
+                          </div>
+                          <div>
+                             <label className="text-xs font-bold text-sky-400 uppercase mb-1 block">Height</label>
+                             <input type="number" className="w-full border border-sky-200 rounded-lg p-2 text-sky-700 font-mono text-lg focus:ring-2 focus:ring-sky-500 outline-none" value={resizeDims.h} onChange={e=>setResizeDims({...resizeDims, h: parseInt(e.target.value)})} />
+                          </div>
+                       </div>
+                       <div className="flex gap-3">
+                          <Button variant="secondary" className="flex-1" onClick={()=>setShowResize(false)}>Cancel</Button>
+                          <Button className="flex-1" onClick={async ()=>{
+                             setIsProcessing(true);
+                             try {
+                               const res = await resizeImageCustom(selected.previewUrl, resizeDims.w, resizeDims.h);
+                               setEnhanced({...enhanced, [selected.id]: res});
+                               setShowResize(false);
+                             } catch(e) { console.error(e); }
+                             setIsProcessing(false);
+                          }}>Apply</Button>
+                       </div>
+                    </div>
+                 </div>
+              )}
+           </div>
+        );
+      };
+
+      // --- MAIN APP COMPONENT ---
+      const App = () => {
+        const [view, setView] = useState(AppView.HOME);
+        const [autoFile, setAutoFile] = useState(null);
+        const picker = useRef(null);
+
+        const features = [
+          { label: 'Open PDF', icon: FolderOpen, action: () => picker.current.click() },
+          { label: 'Convert', icon: FileText, action: () => setView(AppView.CONVERTER) },
+          { label: 'Video PDF', icon: Video, action: () => setView(AppView.CONVERTER) },
+          { label: 'Resize', icon: MoveHorizontal, action: () => setView(AppView.CONVERTER) },
+          { label: 'Upscale', icon: Maximize2, action: () => setView(AppView.CONVERTER) },
+        ];
+
+        if (view === AppView.CONVERTER) return <Converter onBack={() => setView(AppView.HOME)} />;
+        if (view === AppView.VIEWER) return <PDFViewer onBack={() => setView(AppView.HOME)} initialFile={autoFile} />;
+
+        return (
+          <div className="min-h-screen bg-white flex flex-col font-sans">
+            <input ref={picker} type="file" className="hidden" onChange={e => {
+               if(e.target.files?.[0]) { setAutoFile(e.target.files[0]); setView(AppView.VIEWER); }
+            }} accept="application/pdf,image/*,video/*" />
+            
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+               <div className="mb-8 animate-in slide-in-from-top-4 duration-700">
+                  <h1 className="text-xs font-black text-sky-500 tracking-[0.3em] uppercase mb-4 opacity-80">Hevins AI Studio</h1>
+                  <p className="text-sky-400 text-sm md:text-base font-medium max-w-md mx-auto leading-relaxed">
+                     Securely convert videos to PDF, resize photos, upscale to 4K, and view documents entirely in your browser.
+                  </p>
+               </div>
+
+               <div className="flex flex-wrap gap-6 justify-center max-w-3xl mb-12">
+                  {features.map((f,i) => (
+                     <button key={i} onClick={f.action} className="flex flex-col items-center gap-3 group transition-transform active:scale-95 focus:outline-none">
+                        <div className="w-20 h-20 md:w-24 md:h-24 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-500 group-hover:bg-sky-500 group-hover:text-white transition-all shadow-sm border border-sky-100 group-hover:shadow-sky-200 group-hover:shadow-lg">
+                           <f.icon size={32} strokeWidth={1.5} />
+                        </div>
+                        <span className="text-[10px] font-bold text-sky-400 group-hover:text-sky-600 uppercase tracking-widest">{f.label}</span>
+                     </button>
+                  ))}
+               </div>
+               
+               <div className="flex items-center gap-2 text-sky-300 opacity-70 bg-sky-50 px-4 py-2 rounded-full">
+                  <ShieldCheck size={14}/>
+                  <span className="text-[10px] font-bold tracking-widest uppercase">100% Local & Secure Processing</span>
+               </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- ENTRY POINT ---
+      const root = createRoot(document.getElementById('root'));
+      try {
+        root.render(<App />);
+      } catch (err) {
+        document.body.innerHTML = `<div style="color:red; padding:20px;"><h1>App Crash</h1><pre>${err.message}</pre></div>`;
+      }
+    </script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
